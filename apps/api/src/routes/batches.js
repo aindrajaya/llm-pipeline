@@ -3,6 +3,9 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { query } from '../db/index.js';
 import { analysisQueue } from '../lib/queues.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/tmp/dap-uploads';
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
