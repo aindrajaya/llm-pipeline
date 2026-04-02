@@ -13,6 +13,10 @@ GPU configuration:
 import os
 import logging
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from vllm import LLM, SamplingParams  # type: ignore[import]  # noqa: F401 — Linux/GPU-only, not installed on Windows dev
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +52,7 @@ def init_llm():
         return
 
     try:
-        from vllm import LLM, SamplingParams  # noqa: F401
+        from vllm import LLM, SamplingParams  # type: ignore[import]  # noqa: F401
         logger.info(
             f"Loading {MODEL_ID} with quantization={QUANTIZATION}, "
             f"gpu_memory_utilization={GPU_MEMORY_UTILIZATION}, max_num_seqs={MAX_NUM_SEQS}"
@@ -76,7 +80,10 @@ def generate(prompts: list[str], temperature: float = 0.0, max_tokens: int = 204
     Run batch inference. Returns list of generated text strings.
     Temperature=0.0 for deterministic deception analysis.
     """
-    from vllm import SamplingParams
+    try:
+        from vllm import SamplingParams  # type: ignore[import]
+    except ImportError:
+        raise RuntimeError("vLLM is not available in this environment. Enable CPU_FALLBACK=true for local dev.")
 
     llm = get_llm()
     if isinstance(llm, _StubLLM):
@@ -103,7 +110,10 @@ async def generate_stream(prompt: str, temperature: float = 0.0, max_tokens: int
             yield word + " "
         return
 
-    from vllm import SamplingParams
+    try:
+        from vllm import SamplingParams  # type: ignore[import]
+    except ImportError:
+        raise RuntimeError("vLLM is not available in this environment. Enable CPU_FALLBACK=true for local dev.")
 
     sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
     async for output in llm.generate_async(prompt, sampling_params):

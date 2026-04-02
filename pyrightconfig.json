@@ -1,0 +1,12 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingModuleSource": "none",
+  "reportMissingImports": "none",
+  "ignore": ["**/*"],
+  "defineConstant": {},
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportUnknownMemberType": "none",
+  "reportMissingTypeStubs": "none"
+}
