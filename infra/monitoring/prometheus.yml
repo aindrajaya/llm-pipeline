@@ -1,0 +1,32 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "dap-api"
+    static_configs:
+      - targets: ["api:3000"]
+    metrics_path: "/metrics"
+
+  - job_name: "dap-inference"
+    static_configs:
+      - targets: ["inference:8000"]
+    metrics_path: "/metrics"
+
+  # NVIDIA DCGM Exporter — GPU metrics
+  # Requires dcgm-exporter deployed alongside inference service
+  - job_name: "dcgm-exporter"
+    static_configs:
+      - targets: ["dcgm-exporter:9400"]
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - "alerts.yml"

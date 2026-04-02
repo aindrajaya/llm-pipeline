@@ -1,0 +1,125 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dap_postgres
+    environment:
+      POSTGRES_DB: deception_analysis
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../apps/api/src/db/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d deception_analysis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: dap_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile.dev
+    container_name: dap_api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/deception_analysis
+      - REDIS_URL=redis://redis:6379
+      - INFERENCE_SERVICE_URL=http://inference:8000
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-dev_jwt_secret_change_in_production}
+      - PORT=3000
+    volumes:
+      - ../apps/api/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: on-failure
+
+  inference:
+    build:
+      context: ../services/inference
+      dockerfile: Dockerfile
+    container_name: dap_inference
+    ports:
+      - "8000:8000"
+    environment:
+      - MISTRAL_MODEL_ID=${MISTRAL_MODEL_ID:-mistralai/Mistral-Small-3.2}
+      - TEXT_MODEL_PATH=${TEXT_MODEL_PATH:-}
+      - AUDIO_MODEL_PATH=${AUDIO_MODEL_PATH:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.85}
+      - MAX_NUM_SEQS=${MAX_NUM_SEQS:-100}
+      - QUANTIZATION=${QUANTIZATION:-awq}
+      - CPU_FALLBACK=${CPU_FALLBACK:-false}
+    volumes:
+      - model_cache:/root/.cache/huggingface
+    # GPU passthrough — comment out if no GPU available (set CPU_FALLBACK=true)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - redis
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: dap_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: dap_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/deception-analysis.json
+
+volumes:
+  postgres_data:
+  redis_data:
+  model_cache:
+  grafana_data:

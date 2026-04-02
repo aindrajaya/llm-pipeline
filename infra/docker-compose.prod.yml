@@ -1,0 +1,111 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: deception_analysis
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: always
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/deception_analysis
+      - REDIS_URL=redis://redis:6379
+      - INFERENCE_SERVICE_URL=http://inference:8000
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  inference:
+    build:
+      context: ../services/inference
+      dockerfile: Dockerfile
+    environment:
+      - MISTRAL_MODEL_ID=${MISTRAL_MODEL_ID}
+      - TEXT_MODEL_PATH=${TEXT_MODEL_PATH}
+      - AUDIO_MODEL_PATH=${AUDIO_MODEL_PATH}
+      - HF_TOKEN=${HF_TOKEN}
+      - GPU_MEMORY_UTILIZATION=0.85
+      - MAX_NUM_SEQS=100
+      - QUANTIZATION=awq
+      - WORKERS=4
+    volumes:
+      - model_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 24G
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: always
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/deception-analysis.json
+    ports:
+      - "3001:3000"
+    restart: always
+
+volumes:
+  postgres_data:
+  redis_data:
+  model_cache:
+  prometheus_data:
+  grafana_data:
